@@ -2,9 +2,13 @@
 File: main.py
 Author: Zach Kohlman
 Date: 3/13/2024
-Description: This script checks the availability of classes at regular intervals.
-             The user can specify the classes to check and the check interval.
-             The script uses Selenium to interact with the class scheduling website.
+Description: This script checks the availability of classes at regular intervals on the MSOE Scheduler page.
+The script uses Selenium to interact with the class scheduling website and displays desktop notifications 
+using the plyer library to alert the user about the availability status of the classes.
+
+The user can specify the classes to check and the check interval. The script will then check the availability 
+of each class at the specified interval until the program is interrupted by the user.
+
 Usage: Run the script and follow the prompts to enter the classes and check interval.
 """
 
@@ -17,8 +21,7 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-import tkinter as tk
-from tkinter import messagebox
+from plyer import notification
 import time
 import datetime
 import sys
@@ -49,21 +52,23 @@ driver = webdriver.Chrome(service=service, options=options)
 
 def pop_up_alert(message):
     """
-    Display a pop-up alert with the given message.
+    Display a desktop notification with the given message.
 
     Parameters:
-    - message (str): The message to be displayed in the pop-up alert.
+    - message (str): The message to be displayed in the notification.
 
     Returns:
     None
     """
-    try: 
-        root = tk.Tk()                                      # Create a new Tkinter window
-        root.after(SECONDS_TO_WAIT* 1000, root.destroy)     # Wait five seconds then destroy window
-        messagebox.showinfo("Class Availability Alert", message) # Display a message box with the title "Class Availability Alert" and the content specified by the variable "message"
-        root.mainloop()                                          # Add mainloop to display the pop-up and wait for user interaction
-    except KeyboardInterrupt:
-        print("\nExiting program.")
+    # Display the notification for 10 seconds
+    DISPLAY_NOTIFICATION_TIME_S = 10
+    
+    # Show a desktop notification with the specified message
+    notification.notify(
+        title="Class Availability Alert",
+        message=message,
+        timeout=DISPLAY_NOTIFICATION_TIME_S
+    )
         
 def enter_class(coursePrefix, courseCode, sectionNumber):
     """
@@ -158,7 +163,7 @@ def check_class_availability(coursePrefix, courseCode, sectionNumber):
 
                     # Check if the checkbox is checked
                     if checkbox.is_selected():
-                        message = f'Class {coursePrefix} {courseCode} {sectionNumber} IS available! SCHEDULE NOW!!!!'
+                        message = f'Class {coursePrefix} {courseCode} {sectionNumber} IS available! Schedule Now!'
                         print(f"{datetime.datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}: {message}")
                         pop_up_alert(message)
                     else:
