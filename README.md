@@ -9,7 +9,8 @@ Run the program and follow the prompts to enter the classes and check interval. 
 ## Dependencies
 This script uses the Selenium and plyer Python libraries and ChromeDriver. Make sure to:
 
-1. Install and update Python with `sudo apt-get install python3`
-2. Install the Selenium Python library with `pip install selenium`
-3. Install the plyer Python library with `pip install plyer`
-4. Download the correct version of ChromeDriver based on your installed version of Chrome from [here](https://googlechromelabs.github.io/chrome-for-testing/) and add it to your system's PATH.
+1. Install and update Python
+2. Install webdrivers for Selenium with `pip install webdriver-manager`
+3. Install the Selenium Python library with `pip install selenium`
+4. Install the plyer Python library with `pip install plyer`
+5. Download the correct version of ChromeDriver based on your installed version of Chrome from [here](https://googlechromelabs.github.io/chrome-for-testing/) and add it to your system's PATH.
