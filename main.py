@@ -7,32 +7,34 @@ It includes functionalities to add, edit, and remove classes, set check interval
 import threading
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, StaleElementReferenceException, WebDriverException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support import expected_conditions as EC
+from win10toast import ToastNotifier
+import sys
+import os
 
-from plyer import notification
 import time
 import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox
-from queue import Queue
 
 # Constants
 SECONDS_TO_WAIT = 5
 MINUTES_TO_SECONDS = 60
+
+# Suppress Selenium DevTools output by redirecting stderr temporarily
+original_stderr = sys.stderr
+sys.stderr = open(os.devnull, 'w')
 
 # Global Variables
 SCHEDULER_URL = "https://resources.msoe.edu/sched/"
 TEXT_FIELD_CLASS_NAME = "form-control"
 CHECKBOX_CLASS = "fs-checkbox-element"
 SUBMIT_BUTTON_CLASS = "msoe-submit-button"
-PATH_TO_DRIVER = "chromedriver.exe"
 
 # Create an Options object for Chrome
 options = Options()
@@ -41,52 +43,16 @@ options.add_argument("--start-maximized")
 options.add_experimental_option("excludeSwitches", ["enable-automation"])
 options.add_experimental_option('useAutomationExtension', False)
 
-# Create a Service object for ChromeDriver, installing it automatically if necessary
-service = Service(PATH_TO_DRIVER)
-
-# Create a WebDriver object for Chrome, using the specified service and options
-driver = webdriver.Chrome(service=service, options=options)
+# Initialize WebDriver using Selenium Manager
+driver = webdriver.Chrome(options=options)
 
 driver.minimize_window()
 
-# Create a queue for notifications
-notification_queue = Queue()
-
-def pop_up_alert(message):
-    """
-    Add a notification to the queue.
-
-    Parameters:
-    - message: The notification message to display.
-    """
-    notification_queue.put(message)
-
-def notification_worker():
-    """
-    Process notifications from the queue.
-    """
-    while True:
-        message = notification_queue.get()
-        notification.notify(
-            title="Class Available!",
-            message=message,
-            timeout=1  # Set a very short timeout (1 second)
-        )
-        time.sleep(1.1)  # Wait slightly longer than the timeout before processing the next notification
-        notification_queue.task_done()
-
-# Start the notification worker thread
-threading.Thread(target=notification_worker, daemon=True).start()
+# Initialize Windows Toast Notifier
+toaster = ToastNotifier()
 
 def enter_class(coursePrefix, courseCode, sectionNumber):
-    """
-    Enters the class information into the scheduler webpage and submits the form.
-
-    Parameters:
-    - coursePrefix: The prefix of the course (e.g., "CPE").
-    - courseCode: The code of the course (e.g., "4610").
-    - sectionNumber: The section number of the course (e.g., "111").
-    """
+    """Enters the class information into the scheduler webpage and submits the form."""
     driver.get(SCHEDULER_URL)
     textField = driver.find_element(By.CLASS_NAME, TEXT_FIELD_CLASS_NAME)
     textField.clear()
@@ -95,19 +61,11 @@ def enter_class(coursePrefix, courseCode, sectionNumber):
     submitButton.send_keys(Keys.ENTER)
 
 def check_class_availability(coursePrefix, courseCode, sectionNumber):
-    """
-    Checks the availability of a class on the MSOE Scheduler page.
-
-    Parameters:
-    - coursePrefix: The prefix of the course (e.g., "CPE").
-    - courseCode: The code of the course (e.g., "4610").
-    - sectionNumber: The section number of the course (e.g., "111").
-    """
+    """Checks the availability of a class on the MSOE Scheduler page."""
     try:
         driver.get(SCHEDULER_URL)
         enter_class(coursePrefix, courseCode, sectionNumber)
         
-        # Wait for either the checkbox or an error message
         try:
             element = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, f".{CHECKBOX_CLASS}, .flash-error"))
@@ -115,7 +73,6 @@ def check_class_availability(coursePrefix, courseCode, sectionNumber):
         except TimeoutException:
             return False, f'Timeout: Class {coursePrefix} {courseCode} {sectionNumber} page did not load properly'
         
-        # Check if an error message is present
         error_message = driver.find_elements(By.CLASS_NAME, "flash-error")
         if error_message:
             error_text = error_message[0].text
@@ -126,7 +83,6 @@ def check_class_availability(coursePrefix, courseCode, sectionNumber):
                         return False, f'Class {coursePrefix} {courseCode} {sectionNumber} is unknown or not offered for the selected semester'
             return False, f'Error for {coursePrefix} {courseCode} {sectionNumber}: {error_text}'
         
-        # If no error, look for the checkbox
         try:
             checkbox = driver.find_element(By.CSS_SELECTOR, f'input[name="courses[{coursePrefix}-{courseCode}][{sectionNumber}]"]')
         except NoSuchElementException:
@@ -146,38 +102,10 @@ def check_class_availability(coursePrefix, courseCode, sectionNumber):
         return False, f'WebDriver error for {coursePrefix} {courseCode} {sectionNumber}: {str(e)}'
     except Exception as e:
         return False, f'Unexpected error for {coursePrefix} {courseCode} {sectionNumber}: {str(e)}'
-class ClassCheckerApp:
-    """
-    A class representing a Class Availability Checker application.
-    Attributes:
-    - master: The master window of the application.
-    - classes: A list of classes to check availability for.
-    - check_interval: The interval (in seconds) between availability checks.
-    - checking: A boolean indicating whether availability checks are currently running.
-    Methods:
-    - __init__(self, master): Initializes the ClassCheckerApp instance.
-    - set_placeholder(self, entry, placeholder): Sets a placeholder text for an entry widget.
-    - clear_placeholder(self, event, placeholder): Clears the placeholder text when an entry widget is focused.
-    - restore_placeholder(self, event, placeholder): Restores the placeholder text when an entry widget loses focus.
-    - create_class_entry_frame(self): Creates and places the widgets for adding a class.
-    - create_class_list_frame(self): Creates and places the widgets for displaying the class list.
-    - create_interval_frame(self): Creates and places the widgets for setting the check interval.
-    - create_status_frame(self): Creates and places the widgets for displaying the status.
-    - add_class(self): Adds a class to the class list.
-    - clear_entry_fields(self): Clears the entry fields for adding a class.
-    - edit_class(self): Opens a window for editing a selected class.
-    - remove_class(self): Removes a selected class from the class list.
-    - start_checking(self): Starts checking the availability of classes.
-    - check_schedule_availability(self): Checks the availability of classes at regular intervals.
-    - stop_checking(self): Stops checking the availability of classes.
-    """
-    def __init__(self, master):
-        """
-        Initialize the ClassCheckerApp with the main window.
 
-        Parameters:
-        - master: The main window of the application.
-        """
+class ClassCheckerApp:
+    """A class representing a Class Availability Checker application."""
+    def __init__(self, master):
         self.master = master
         master.title("Class Availability Checker")
         master.geometry("700x500")
@@ -186,53 +114,28 @@ class ClassCheckerApp:
         self.check_interval = 60
         self.checking = False
 
-        # Create and place widgets
         self.create_class_entry_frame()
         self.create_class_list_frame()
         self.create_interval_frame()
         self.create_status_frame()
 
     def set_placeholder(self, entry, placeholder):
-        """
-        Set a placeholder text in an entry widget.
-
-        Parameters:
-        - entry: The entry widget.
-        - placeholder: The placeholder text.
-        """
         entry.insert(0, placeholder)
         entry.config(foreground='grey')
         entry.bind("<FocusIn>", lambda event: self.clear_placeholder(event, placeholder))
         entry.bind("<FocusOut>", lambda event: self.restore_placeholder(event, placeholder))
 
     def clear_placeholder(self, event, placeholder):
-        """
-        Clear the placeholder text when the entry widget gains focus.
-
-        Parameters:
-        - event: The focus event.
-        - placeholder: The placeholder text.
-        """
         if event.widget.get() == placeholder:
             event.widget.delete(0, tk.END)
             event.widget.config(foreground='black')
 
     def restore_placeholder(self, event, placeholder):
-        """
-        Restore the placeholder text when the entry widget loses focus.
-
-        Parameters:
-        - event: The focus event.
-        - placeholder: The placeholder text.
-        """
         if not event.widget.get():
             event.widget.insert(0, placeholder)
             event.widget.config(foreground='grey')
 
     def create_class_entry_frame(self):
-        """
-        Create the frame for entering class information.
-        """
         entry_frame = ttk.LabelFrame(self.master, text="Add Class")
         entry_frame.pack(fill="x", padx=10, pady=5)
 
@@ -255,9 +158,6 @@ class ClassCheckerApp:
         self.add_button.grid(row=0, column=6, padx=5, pady=5)
    
     def create_class_list_frame(self):
-        """
-        Create the frame for displaying the list of classes.
-        """
         list_frame = ttk.LabelFrame(self.master, text="Class List")
         list_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
@@ -279,9 +179,6 @@ class ClassCheckerApp:
         self.remove_button.pack(side=tk.LEFT, padx=5, pady=5)
 
     def create_interval_frame(self):
-        """
-        Create the frame for setting the check interval.
-        """
         interval_frame = ttk.LabelFrame(self.master, text="Check Interval")
         interval_frame.pack(fill="x", padx=10, pady=5)
 
@@ -296,9 +193,6 @@ class ClassCheckerApp:
         self.stop_button.pack(side=tk.LEFT, padx=5)
 
     def create_status_frame(self):
-        """
-        Create the frame for displaying the status of the checking process.
-        """
         status_frame = ttk.LabelFrame(self.master, text="Status")
         status_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
@@ -310,9 +204,6 @@ class ClassCheckerApp:
         self.status_text.configure(yscrollcommand=scrollbar.set)
 
     def add_class(self):
-        """
-        Add a class to the list of classes to be checked.
-        """
         prefix = self.prefix_entry.get().strip().upper()
         number = self.number_entry.get().strip()
         section = self.section_entry.get().strip()
@@ -326,17 +217,11 @@ class ClassCheckerApp:
             messagebox.showerror("Error", "Please fill in all fields.")
 
     def clear_entry_fields(self):
-        """
-        Clear the entry fields for class information.
-        """
         self.prefix_entry.delete(0, tk.END)
         self.number_entry.delete(0, tk.END)
         self.section_entry.delete(0, tk.END)
 
     def edit_class(self):
-        """
-        Edit the selected class in the list of classes.
-        """
         selected_item = self.class_tree.selection()
         if selected_item:
             item = selected_item[0]
@@ -361,9 +246,6 @@ class ClassCheckerApp:
             section_entry.grid(row=2, column=1, padx=5, pady=5)
 
             def save_changes():
-                """
-                Save the changes made to the class information.
-                """
                 new_prefix = prefix_entry.get().strip().upper()
                 new_number = number_entry.get().strip()
                 new_section = section_entry.get().strip()
@@ -380,9 +262,6 @@ class ClassCheckerApp:
             ttk.Button(edit_window, text="Save", command=save_changes).grid(row=3, column=0, columnspan=2, pady=10)
 
     def remove_class(self):
-        """
-        Remove the selected class from the list of classes.
-        """
         selected_item = self.class_tree.selection()
         if selected_item:
             item = selected_item[0]
@@ -392,9 +271,6 @@ class ClassCheckerApp:
             self.class_tree.delete(item)
 
     def start_checking(self):
-        """
-        Start the process of checking class availability.
-        """
         if self.checking:
             messagebox.showinfo("Info", "Checking is already in progress.")
             return
@@ -414,18 +290,11 @@ class ClassCheckerApp:
         threading.Thread(target=self.check_schedule_availability, daemon=True).start()
 
     def check_schedule_availability(self):
-        """
-        Check the availability of classes in the schedule.
-        This method continuously checks the availability of classes in the schedule. It iterates over each class in the schedule and calls the `check_class_availability` function to determine if the class is available. The availability status and a status message are displayed in a text widget. If a class is available, a pop-up alert is shown.
-        The method uses a precise sleep method to ensure that the checking interval is maintained. It calculates the elapsed time for each iteration and determines the sleep time based on the desired check interval.
-        Parameters:
-        - None
-        Returns:
-        - None
-        """
         while self.checking:
             start_time = time.time()
+            available_classes = []  # List to store available classes
             
+            # Check all classes in the current cycle
             for class_info in self.classes:
                 coursePrefix, courseCode, sectionNumber = class_info.split()
                 is_available, status_message = check_class_availability(coursePrefix, courseCode, sectionNumber)
@@ -433,38 +302,33 @@ class ClassCheckerApp:
                 self.status_text.insert(tk.END, f"{timestamp}: {status_message}\n")
                 self.status_text.see(tk.END)
                 if is_available:
-                    pop_up_alert(status_message)
+                    available_classes.append(f"{coursePrefix} {courseCode} {sectionNumber}")
+            
+            # Show a single Windows toast notification if there are any available classes
+            if available_classes:
+                message = "Available classes:\n" + "\n".join(available_classes)
+                toaster.show_toast(
+                    title="Class Available!",
+                    msg=message,
+                    duration=5,  # Duration in seconds
+                    threaded=True  # Run in a separate thread to avoid blocking
+                )
             
             elapsed_time = time.time() - start_time
             sleep_time = max(0, self.check_interval - elapsed_time)
             
-            # Use a more precise sleep method
             end_time = start_time + self.check_interval
             while time.time() < end_time:
                 remaining = end_time - time.time()
                 if remaining > 0:
-                    time.sleep(min(remaining, 0.1))  # Sleep in small increments
+                    time.sleep(min(remaining, 0.1))
 
     def stop_checking(self):
-        """
-        Stops the checking process.
-
-        This method sets the 'checking' attribute to False, enabling the buttons and displaying an information message.
-
-        Parameters:
-            self (object): The instance of the class.
-
-        Returns:
-            None
-        """
         self.checking = False
         self.enable_buttons()
         messagebox.showinfo("Info", "Checking has been stopped.")
 
     def disable_buttons(self):
-        """
-        Disables all buttons and entry fields in the GUI.
-        """
         self.add_button.config(state="disabled")
         self.edit_button.config(state="disabled")
         self.remove_button.config(state="disabled")
@@ -475,18 +339,6 @@ class ClassCheckerApp:
         self.section_entry.config(state="disabled")
 
     def enable_buttons(self):
-        """
-        Enable all buttons and entry fields in the GUI.
-
-        This method sets the state of all buttons and entry fields to "normal",
-        allowing the user to interact with them.
-
-        Parameters:
-        - None
-
-        Returns:
-        - None
-        """
         self.add_button.config(state="normal")
         self.edit_button.config(state="normal")
         self.remove_button.config(state="normal")
